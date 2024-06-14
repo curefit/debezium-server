@@ -14,9 +14,9 @@ public class MySqlBatchExitLogic {
 
     public boolean reachedTarget(String record, ConfigHolder configHolder) {
 
-        if (record == null || configHolder == null || configHolder.getTargetFileName() == null) {
-            return false; // Return false or handle the null case appropriately
-        }
+        // if (record == null || configHolder == null || configHolder.getTargetFileName() == null) {
+        // return false; // Return false or handle the null case appropriately
+        // }
 
         Matcher fileMatcher = FILE_PATTERN.matcher(record);
         Matcher posMatcher = POS_PATTERN.matcher(record);

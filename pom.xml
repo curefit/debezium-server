@@ -207,12 +207,6 @@
             </modules>
         </profile>
         <profile>
-            <id>with-kafka</id>
-            <modules>
-                <module>debezium-server-kafka</module>
-            </modules>
-        </profile>
-        <profile>
             <id>with-pravega</id>
             <modules>
                 <module>debezium-server-pravega</module>
