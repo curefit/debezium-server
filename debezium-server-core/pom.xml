@@ -121,6 +121,24 @@
             <version>${version.com.google.protobuf}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.13.0</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-connector-mysql</artifactId>
+            <version>2.4.0.Final</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-server-arrakis-utils</artifactId>
+            <version>2.4.0.Final</version>
+            <scope>compile</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>
@@ -173,6 +191,14 @@
                         <test.apicurio>false</test.apicurio>
                     </systemProperties>
                     <runOrder>${runOrder}</runOrder>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>16</source>
+                    <target>16</target>
                 </configuration>
             </plugin>
         </plugins>

@@ -22,6 +22,8 @@ mods/
 .tags
 epom
 log
+appdist/
+application.properties
 npm-debug.log
 .DS_Store
 phantomjsdriver.log

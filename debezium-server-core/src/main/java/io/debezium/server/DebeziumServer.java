@@ -31,6 +31,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.debezium.DebeziumException;
+import io.debezium.arrakis.utils.CommonUtils;
+import io.debezium.arrakis.utils.ConfigHolder;
 import io.debezium.engine.ChangeEvent;
 import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.DebeziumEngine.ChangeConsumer;
@@ -103,7 +105,7 @@ public class DebeziumServer {
     private Bean<DebeziumEngine.ChangeConsumer<ChangeEvent<Object, Object>>> consumerBean;
     private CreationalContext<ChangeConsumer<ChangeEvent<Object, Object>>> consumerBeanCreationalContext;
     private DebeziumEngine.ChangeConsumer<ChangeEvent<Object, Object>> consumer;
-    private DebeziumEngine<?> engine;
+    DebeziumEngine<?> engine;
     private final Properties props = new Properties();
 
     @SuppressWarnings("unchecked")
@@ -111,6 +113,7 @@ public class DebeziumServer {
     public void start() {
         final Config config = loadConfigOrDie();
         final String name = config.getValue(PROP_SINK_TYPE, String.class);
+        final CommonUtils commonUtils = new CommonUtils();
 
         final Set<Bean<?>> beans = beanManager.getBeans(name).stream()
                 .filter(x -> DebeziumEngine.ChangeConsumer.class.isAssignableFrom(x.getBeanClass()))
@@ -155,8 +158,19 @@ public class DebeziumServer {
             configToProperties(config, props, PROP_PREDICATES_PREFIX, "predicates.", true);
         }
 
-        props.setProperty("name", name);
+        props.setProperty("name", config.getValue("debezium.source.database.dbname", String.class));
         LOGGER.debug("Configuration for DebeziumEngine: {}", props);
+
+        ConfigHolder configHolder = ConfigHolderBean.configHolder;
+        LOGGER.info("ConfigHolder in DebeziumServer: {}", configHolder);
+
+        props.setProperty("schema.history.internal.file.filename", configHolder.getSchemHistoryFileName());
+        props.setProperty("database.server.id", String.valueOf(commonUtils.generateServerID()));
+        props.setProperty("database.server.name", config.getValue("debezium.source.database.dbname", String.class)
+                + "-" + configHolder.getShortPipeId());
+        props.setProperty("topic.prefix", config.getValue("debezium.source.database.dbname", String.class)
+                + "-" + configHolder.getShortPipeId());
+        props.setProperty("offset.storage.file.filename", configHolder.getOffsetFileName());
 
         engine = DebeziumEngine.create(keyFormat, valueFormat, headerFormat)
                 .using(props)
@@ -237,7 +251,7 @@ public class DebeziumServer {
             executor.awaitTermination(config.getOptionalValue(PROP_TERMINATION_WAIT, Integer.class).orElse(10), TimeUnit.SECONDS);
         }
         catch (Exception e) {
-            LOGGER.error("Exception while shuttting down Debezium", e);
+            LOGGER.error("Exception while shutting down Debezium", e);
         }
         consumerBean.destroy(consumer, consumerBeanCreationalContext);
     }

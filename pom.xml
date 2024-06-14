@@ -43,21 +43,9 @@
 
     <modules>
         <module>debezium-server-bom</module>
+        <module>debezium-server-arrakis-utils</module>
         <module>debezium-server-core</module>
-        <module>debezium-server-kinesis</module>
-        <module>debezium-server-pubsub</module>
-        <module>debezium-server-pulsar</module>
-        <module>debezium-server-eventhubs</module>
-        <module>debezium-server-http</module>
-        <module>debezium-server-redis</module>
         <module>debezium-server-dist</module>
-        <module>debezium-server-kafka</module>
-        <module>debezium-server-pravega</module>
-        <module>debezium-server-nats-streaming</module>
-        <module>debezium-server-nats-jetstream</module>
-        <module>debezium-server-infinispan</module>
-        <module>debezium-server-rabbitmq</module>
-        <module>debezium-server-rocketmq</module>
     </modules>
 
     <dependencyManagement>
@@ -171,4 +159,95 @@
             <scope>runtime</scope>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>with-kafka</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <modules>
+                <module>debezium-server-kafka</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-kinesis</id>
+            <modules>
+                <module>debezium-server-kinesis</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-pubsub</id>
+            <modules>
+                <module>debezium-server-pubsub</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-pulsar</id>
+            <modules>
+                <module>debezium-server-pulsar</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-eventhubs</id>
+            <modules>
+                <module>debezium-server-eventhubs</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-http</id>
+            <modules>
+                <module>debezium-server-http</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-redis</id>
+            <modules>
+                <module>debezium-server-redis</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-kafka</id>
+            <modules>
+                <module>debezium-server-kafka</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-pravega</id>
+            <modules>
+                <module>debezium-server-pravega</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-nats-streaming</id>
+            <modules>
+                <module>debezium-server-nats-streaming</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-nats-jetstream</id>
+            <modules>
+                <module>debezium-server-nats-jetstream</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-infinispan</id>
+            <modules>
+                <module>debezium-server-infinispan</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-rabbitmq</id>
+            <modules>
+                <module>debezium-server-rabbitmq</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>with-rocketmq</id>
+            <modules>
+                <module>debezium-server-rocketmq</module>
+            </modules>
+        </profile>
+    </profiles>
+
 </project>
