@@ -140,7 +140,9 @@ public class KafkaChangeConsumer extends BaseChangeConsumer implements DebeziumE
                 committer.markProcessed(record);
 
                 if (ConfigHolderBean.configHolder.pipelineType.equals("BATCH")) {
-                    hasTargetReached = mySqlBatchExitLogic.reachedTarget(record.toString(), ConfigHolderBean.configHolder);
+                    hasTargetReached = mySqlBatchExitLogic.reachedTarget(record.toString(),
+                            ConfigHolderBean.configHolder.getTargetFileName(),
+                            ConfigHolderBean.configHolder.getTargetPosition());
                 }
 
             }

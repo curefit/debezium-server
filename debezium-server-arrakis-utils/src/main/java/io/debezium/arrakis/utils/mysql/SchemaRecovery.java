@@ -42,7 +42,7 @@ public class SchemaRecovery {
 
     private final BlockingQueue<ChangeEvent<String, String>> queue = new LinkedBlockingQueue<>(10);
 
-    private final ConfigHolder configHolder = new ConfigHolder();
+    private static final ConfigHolder configHolder = new ConfigHolder();
 
     private GetPipeByIdResponse getPipeInfoApi(String url) throws IOException, InterruptedException, RuntimeException {
         // Create HttpClient
@@ -221,13 +221,11 @@ public class SchemaRecovery {
                 configPoJo.getHost(),
                 configPoJo.getPort());
 
-        if (pipe.pipelineType == PipelineType.BATCH.toString()) {
-            LOGGER.info("Extracting latest Offset from MySQL for target position and filename: ");
-            MysqlDebeziumStateAttributes targetMySqlOffsetState = mySqlOffset.getStateAttributesFromDB();
-            configHolder.setTargetPosition(targetMySqlOffsetState.getBinlogPosition());
-            configHolder.setTargetFileName(targetMySqlOffsetState.getBinlogFilename());
-            LOGGER.info("Target Offset extracted from MySQL : {}", targetMySqlOffsetState.format("arrakis", Instant.now()));
-        }
+        LOGGER.info("Extracting latest Offset from MySQL for target position and filename: ");
+        MysqlDebeziumStateAttributes targetMySqlOffsetState = mySqlOffset.getStateAttributesFromDB();
+        configHolder.setTargetPosition(targetMySqlOffsetState.getBinlogPosition());
+        configHolder.setTargetFileName(targetMySqlOffsetState.getBinlogFilename());
+        LOGGER.info("Target Offset extracted from MySQL : {}", targetMySqlOffsetState.format("arrakis", Instant.now()));
 
         if (pipe.state == null || pipe.state.isEmpty()) {
 

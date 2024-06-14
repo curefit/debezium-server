@@ -16,7 +16,7 @@ public class ConfigHolder {
     @JsonProperty("target_position")
     public long targetPosition;
 
-    @JsonProperty("target_filename")
+    @JsonProperty("target_file_name")
     public String targetFileName;
 
     @JsonProperty("schem_history_file_name")

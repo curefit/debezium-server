@@ -25,7 +25,7 @@ public class Main {
 
         SchemaRecovery schemaRecovery = new SchemaRecovery();
         ConfigHolder configHolder = schemaRecovery.recoverSchema();
-        LOGGER.info("Recovered schema : {}", configHolder);
+        LOGGER.info("Recovered config : {}", configHolder);
 
         // Set the ConfigHolder in ConfigHolderBean
         ConfigHolderBean.configHolder = configHolder;
