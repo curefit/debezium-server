@@ -21,7 +21,6 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.arrakis.commons.enums.PipelineType;
 import io.arrakis.commons.pojos.MySQLConfigPoJo;
 import io.arrakis.commons.responses.GetPipeByIdResponse;
 import io.arrakis.commons.utils.PipelineUtils;
@@ -213,7 +212,7 @@ public class SchemaRecovery {
         configHolder.setPipelineType(pipe.pipelineType);
         configHolder.setShortPipeId(shotPipeId);
 
-        MySQLConfigPoJo configPoJo = objectMapper.readValue(pipe.configuration.toString(),
+        MySQLConfigPoJo configPoJo = objectMapper.readValue(pipe.sourceConfiguration.toString(),
                 MySQLConfigPoJo.class);
 
         MySqlOffset mySqlOffset = new MySqlOffset(configPoJo.getUsername(),

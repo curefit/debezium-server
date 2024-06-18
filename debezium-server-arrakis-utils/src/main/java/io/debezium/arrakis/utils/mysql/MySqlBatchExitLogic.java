@@ -6,9 +6,9 @@ import java.util.regex.Pattern;
 
 public class MySqlBatchExitLogic {
 
-    final Pattern FILE_PATTERN = Pattern.compile("\"file\"\\s*:\\s*\"([^\"]+)\"");
-    final Pattern POS_PATTERN = Pattern.compile("\"pos\"\\s*:\\s*(\\d+)");
-    final Pattern SNAPSHOT_PATTERN = Pattern.compile("\"snapshot\"\\s*:\\s*\"([^\"]+)\"");
+    final Pattern FILE_PATTERN = Pattern.compile("file=([^,}]+)");
+    final Pattern POS_PATTERN = Pattern.compile("pos=(\\d+)");
+    final Pattern SNAPSHOT_PATTERN = Pattern.compile("snapshot=([^,}]+)");
 
     public boolean reachedTarget(String record, String targetFileName, long targetPosition) {
 
