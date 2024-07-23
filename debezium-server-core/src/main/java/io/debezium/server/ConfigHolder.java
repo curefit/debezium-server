@@ -1,4 +1,4 @@
-package io.debezium.arrakis.utils;
+package io.debezium.server;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;

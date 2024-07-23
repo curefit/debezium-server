@@ -1,10 +1,6 @@
-package io.debezium.arrakis.utils.mysql;
+package io.debezium.server;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
@@ -21,11 +17,17 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.arrakis.commons.pojos.MySQLConfigPoJo;
-import io.arrakis.commons.responses.GetPipeByIdResponse;
-import io.arrakis.commons.utils.PipelineUtils;
-import io.debezium.arrakis.utils.CommonUtils;
-import io.debezium.arrakis.utils.ConfigHolder;
+import io.arrakis.commons.dto.PipelineRunContext;
+import io.arrakis.commons.exceptions.ArrakisException;
+import io.arrakis.commons.utils.ArrakisHttpUtils;
+import io.arrakis.commons.utils.ArrakisUtils;
+import io.arrakis.connectors.mysql.MySQLConfig;
+import io.arrakis.connectors.mysql.MySQLDebeziumProperties;
+import io.arrakis.connectors.mysql.schemahistory.MySQLSchemaHistory;
+import io.arrakis.connectors.mysql.schemahistory.MySQLSchemaHistoryStorage;
+import io.arrakis.connectors.mysql.state.MySQLOffset;
+import io.arrakis.connectors.mysql.state.MySQLOffsetUtils;
+import io.arrakis.connectors.mysql.state.MySQLStateAttributes;
 import io.debezium.engine.ChangeEvent;
 import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.format.Json;
@@ -43,80 +45,13 @@ public class SchemaRecovery {
 
     private static final ConfigHolder configHolder = new ConfigHolder();
 
-    private GetPipeByIdResponse getPipeInfoApi(String url) throws IOException, InterruptedException, RuntimeException {
-        // Create HttpClient
-        HttpClient client = HttpClient.newHttpClient();
-        LOGGER.info("Getting pipe info from: " + url);
-        // Create HttpRequest
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("accept", "application/json")
-                .build();
+    private ExecutorService runDebeziumEngine(Path schemaHistoryPath,
+                                              Path offsetFilePath,
+                                              PipelineRunContext pipelineRunContext)
+            throws ArrakisException {
 
-        // Send request and get response
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-        // Check if the response status is 200 (OK)
-        if (response.statusCode() != 200) {
-            throw new RuntimeException("Failed to get response: "
-                    + response.statusCode()
-                    + " " + response.body()
-                    + " for url: " + url);
-        }
-
-        // Convert response body to JsonNode
-        ObjectMapper objectMapper = new ObjectMapper();
-        return objectMapper.readValue(response.body(), GetPipeByIdResponse.class);
-    }
-
-    private Path createOffsetFile() {
-        final Path cdcWorkingDir;
-        try {
-            cdcWorkingDir = Files.createTempDirectory(Path.of("/tmp"), "cdc-state-offset");
-        }
-        catch (final IOException e) {
-            throw new RuntimeException(e);
-        }
-        return cdcWorkingDir;
-    }
-
-    private ExecutorService runDebeziumEngine(Path offsetFilePath,
-                                              Path schemaHistoryPath,
-                                              String dbName,
-                                              String password,
-                                              String host,
-                                              String username,
-                                              int port) {
-
-        final Config config = ConfigProvider.getConfig();
-        final CommonUtils commonUtils = new CommonUtils();
-
-        Properties props = new Properties();
-
-        props.setProperty("name", dbName);
-        props.setProperty("connector.class", "io.debezium.connector.mysql.MySqlConnector");
-        props.setProperty("snapshot.mode", "schema_only_recovery");
-        props.setProperty("schema.history.internal.store.only.captured.tables.ddl", "false");
-        props.setProperty("max.queue.size", "8192");
-        props.setProperty("topic.prefix", dbName + "-" + configHolder.getShortPipeId());
-        props.setProperty("schema.history.internal", "io.debezium.storage.file.history.FileSchemaHistory");
-        props.setProperty("schema.history.internal.file.filename", schemaHistoryPath.toString());
-        props.setProperty("binary.handling.mode", "base64");
-        props.setProperty("offset.storage.file.filename", offsetFilePath.toString());
-        props.setProperty("decimal.handling.mode", "string");
-        props.setProperty("value.converter", "org.apache.kafka.connect.json.JsonConverter");
-        props.setProperty("database.server.id", String.valueOf(commonUtils.generateServerID()));
-        props.setProperty("database.server.name", dbName + "-" + configHolder.getShortPipeId());
-        props.setProperty("max.queue.size.in.bytes", "268435456");
-        props.setProperty("errors.retry.delay.max.ms", "300");
-        props.setProperty("offset.flush.timeout.ms", "5000");
-        props.setProperty("database.password", password);
-        props.setProperty("database.user", username);
-        props.setProperty("database.port", String.valueOf(port));
-        props.setProperty("offset.flush.interval.ms", "1000");
-        props.setProperty("database.ssl.mode", "PREFERRED");
-        props.setProperty("database.hostname", host);
-        props.setProperty("database.include.list", dbName);
+        Properties props = MySQLDebeziumProperties.getMySQLDebeziumPropertiesForSchemaRecovery(pipelineRunContext,
+                schemaHistoryPath.toString(), offsetFilePath.toString());
 
         LOGGER.info("Starting Debezium engine in schema recovery mode to capture the latest schema changes");
 
@@ -191,7 +126,7 @@ public class SchemaRecovery {
         return hasClosed;
     }
 
-    public ConfigHolder recoverSchema() throws IOException, InterruptedException, SQLException {
+    public ConfigHolder recoverSchema() throws IOException, InterruptedException, SQLException, ArrakisException {
 
         final Config config = ConfigProvider.getConfig();
         final ObjectMapper objectMapper = new ObjectMapper();
@@ -200,31 +135,27 @@ public class SchemaRecovery {
         String ARRAKIS_PIPE_ID = "arrakis.pipeline.id";
         String PIPE_INFO_API = "/api/v1/pipes/id/";
 
-        GetPipeByIdResponse pipe = getPipeInfoApi("http://" + config.getValue(ARRAKIS_URL, String.class)
-                + ":9094"
+        PipelineRunContext pipe = ArrakisHttpUtils.getPipeInfoApi(config.getValue(ARRAKIS_URL, String.class)
                 + PIPE_INFO_API
                 + config.getValue(ARRAKIS_PIPE_ID, String.class));
 
         LOGGER.info("Pipe info: " + pipe.toString());
 
-        String shotPipeId = PipelineUtils.uuidToShort(UUID.fromString(config.getValue(ARRAKIS_PIPE_ID, String.class)));
+        String shotPipeId = ArrakisUtils.uuidToShort(UUID.fromString(config.getValue(ARRAKIS_PIPE_ID, String.class)));
 
         configHolder.setPipelineType(pipe.pipelineType);
         configHolder.setShortPipeId(shotPipeId);
 
-        MySQLConfigPoJo configPoJo = objectMapper.readValue(pipe.sourceConfiguration.toString(),
-                MySQLConfigPoJo.class);
+        MySQLConfig mysqlConfig = objectMapper.readValue(pipe.sourceConfig.toString(),
+                MySQLConfig.class);
 
-        MySqlOffset mySqlOffset = new MySqlOffset(configPoJo.getUsername(),
-                configPoJo.getPassword(),
-                configPoJo.getHost(),
-                configPoJo.getPort());
+        MySQLOffsetUtils mySqlOffsetUtils = new MySQLOffsetUtils(mysqlConfig);
 
         LOGGER.info("Extracting latest Offset from MySQL for target position and filename: ");
-        MysqlDebeziumStateAttributes targetMySqlOffsetState = mySqlOffset.getStateAttributesFromDB();
-        configHolder.setTargetPosition(targetMySqlOffsetState.getBinlogPosition());
-        configHolder.setTargetFileName(targetMySqlOffsetState.getBinlogFilename());
-        LOGGER.info("Target Offset extracted from MySQL : {}", targetMySqlOffsetState.format("arrakis", Instant.now()));
+        List<MySQLStateAttributes> targetMySqlOffsetState = mySqlOffsetUtils.getStateAttributesFromDB();
+        configHolder.setTargetPosition(targetMySqlOffsetState.get(0).getBinlogPosition());
+        configHolder.setTargetFileName(targetMySqlOffsetState.get(0).getBinlogFilename());
+        LOGGER.info("Target Offset extracted from MySQL : {}", targetMySqlOffsetState);
 
         if (pipe.state == null || pipe.state.isEmpty()) {
 
@@ -245,8 +176,8 @@ public class SchemaRecovery {
 
             // Step 2: Create Schema History Storage empty file
 
-            SchemaHistoryStorage schemaHistoryStorage = SchemaHistoryStorage.initializeDBHistory(
-                    new SchemaHistory<>(Optional.empty(), false),
+            MySQLSchemaHistoryStorage schemaHistoryStorage = MySQLSchemaHistoryStorage.initializeDBHistory(
+                    new MySQLSchemaHistory<>(Optional.empty(), false),
                     true);
 
             // Step 3: Return empty offset and schema files with target pos and filename
@@ -265,42 +196,38 @@ public class SchemaRecovery {
             LOGGER.info("Validate if the offset is still valid in MySQL");
             JsonNode offset = pipe.state.get("mysql_cdc_offset");
 
-            Map<String, String> offsetMap = mySqlOffset.offsetAsMap(offset, configPoJo.getDatabase());
+            Map<String, String> offsetMap = mySqlOffsetUtils.offsetAsMap(offset, mysqlConfig.getDatabaseName());
 
             JsonNode offsetAsJsonNode = null;
             offsetAsJsonNode = objectMapper.readTree(offsetMap.values().iterator().next());
 
             assert offsetAsJsonNode != null;
 
-            if (mySqlOffset.savedOffsetStillValid(offsetAsJsonNode.get("file").asText())) {
+            if (mySqlOffsetUtils.savedOffsetStillValid(offsetAsJsonNode.get("file").asText())) {
 
                 // Step 2: If state is valid persist into a file and return the file path
 
-                OffsetManager offsetManager = OffsetManager.initializeState(pipe.state.get("mysql_cdc_offset"),
-                        configPoJo.getDatabase().isEmpty() ? Optional.empty() : Optional.of(configPoJo.getDatabase()));
-                LOGGER.info("Created Offset file {}", offsetManager.getOffsetFilePath());
-                LOGGER.info("Persisted latest offset to: {}", offsetManager.getOffsetFilePath());
+                MySQLOffset mySQLOffset = MySQLOffset.initializeState(pipe.state.get("mysql_cdc_offset"), Optional.of(mysqlConfig.getDatabaseName()));
+
+                LOGGER.info("Created Offset file {}", mySQLOffset.getOffsetFilePath());
+                LOGGER.info("Persisted latest offset to: {}", mySQLOffset.getOffsetFilePath());
 
                 // Step 3: Create Schema History Storage empty file
 
-                SchemaHistoryStorage schemaHistoryStorage = SchemaHistoryStorage.initializeDBHistory(
-                        new SchemaHistory<>(Optional.empty(), false),
+                MySQLSchemaHistoryStorage schemaHistoryStorage = MySQLSchemaHistoryStorage.initializeDBHistory(
+                        new MySQLSchemaHistory<>(Optional.empty(), false),
                         true);
 
                 // Step 4: Start Debezium Engine with the Offset and Schema History Storage
 
-                executor = runDebeziumEngine(offsetManager.getOffsetFilePath(),
-                        schemaHistoryStorage.getPath(),
-                        configPoJo.getDatabase(),
-                        configPoJo.getPassword(),
-                        configPoJo.getHost(),
-                        configPoJo.getUsername(),
-                        configPoJo.getPort());
+                executor = runDebeziumEngine(schemaHistoryStorage.getPath(),
+                        mySQLOffset.getOffsetFilePath(),
+                        pipe);
 
                 if (closeOnSuccessOrFailure(Instant.now())) {
                     configHolder.setSchemHistoryFileName(schemaHistoryStorage.getPath().toString());
-                    configHolder.setOffsetFileName(offsetManager.getOffsetFilePath().toString());
-                    configHolder.setServerName(configPoJo.getDatabase());
+                    configHolder.setOffsetFileName(mySQLOffset.getOffsetFilePath().toString());
+                    configHolder.setServerName(mysqlConfig.getDatabaseName());
                     return configHolder;
                 }
                 return null;

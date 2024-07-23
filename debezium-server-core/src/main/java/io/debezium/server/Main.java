@@ -11,8 +11,7 @@ import java.sql.SQLException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.debezium.arrakis.utils.ConfigHolder;
-import io.debezium.arrakis.utils.mysql.SchemaRecovery;
+import io.arrakis.commons.exceptions.ArrakisException;
 import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.annotations.QuarkusMain;
 
@@ -21,7 +20,7 @@ public class Main {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
 
-    public static void main(String... args) throws InterruptedException, IOException, SQLException {
+    public static void main(String... args) throws InterruptedException, IOException, SQLException, ArrakisException {
 
         SchemaRecovery schemaRecovery = new SchemaRecovery();
         ConfigHolder configHolder = schemaRecovery.recoverSchema();

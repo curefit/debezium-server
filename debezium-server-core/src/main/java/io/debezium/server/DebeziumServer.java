@@ -30,9 +30,8 @@ import org.eclipse.microprofile.health.Liveness;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.arrakis.commons.utils.ArrakisUtils;
 import io.debezium.DebeziumException;
-import io.debezium.arrakis.utils.CommonUtils;
-import io.debezium.arrakis.utils.ConfigHolder;
 import io.debezium.engine.ChangeEvent;
 import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.DebeziumEngine.ChangeConsumer;
@@ -113,7 +112,7 @@ public class DebeziumServer {
     public void start() {
         final Config config = loadConfigOrDie();
         final String name = config.getValue(PROP_SINK_TYPE, String.class);
-        final CommonUtils commonUtils = new CommonUtils();
+        // final CommonUtils commonUtils = new CommonUtils();
 
         final Set<Bean<?>> beans = beanManager.getBeans(name).stream()
                 .filter(x -> DebeziumEngine.ChangeConsumer.class.isAssignableFrom(x.getBeanClass()))
@@ -165,7 +164,7 @@ public class DebeziumServer {
         LOGGER.info("ConfigHolder in DebeziumServer: {}", configHolder);
 
         props.setProperty("schema.history.internal.file.filename", configHolder.getSchemHistoryFileName());
-        props.setProperty("database.server.id", String.valueOf(commonUtils.generateServerID()));
+        props.setProperty("database.server.id", String.valueOf(ArrakisUtils.generateServerID()));
         props.setProperty("database.server.name", config.getValue("debezium.source.database.dbname", String.class)
                 + "-" + configHolder.getShortPipeId());
         props.setProperty("topic.prefix", config.getValue("debezium.source.database.dbname", String.class)

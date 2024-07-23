@@ -16,7 +16,6 @@
             <groupId>io.debezium</groupId>
             <artifactId>debezium-server-core</artifactId>
         </dependency>
-
         <!-- Testing -->
         <dependency>
             <groupId>io.debezium</groupId>

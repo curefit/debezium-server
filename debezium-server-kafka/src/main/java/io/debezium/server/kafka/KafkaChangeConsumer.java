@@ -29,10 +29,10 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import io.arrakis.commons.utils.ArrakisHttpUtils;
+import io.arrakis.connectors.mysql.state.MySQLOffset;
+import io.arrakis.connectors.mysql.utils.MySQLBatchExitLogic;
 import io.debezium.DebeziumException;
-import io.debezium.arrakis.utils.StateManager;
-import io.debezium.arrakis.utils.mysql.MySqlBatchExitLogic;
-import io.debezium.arrakis.utils.mysql.OffsetManager;
 import io.debezium.engine.ChangeEvent;
 import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.DebeziumEngine.RecordCommitter;
@@ -100,13 +100,17 @@ public class KafkaChangeConsumer extends BaseChangeConsumer implements DebeziumE
 
     public void storeState(Config config) {
         LOGGER.info("Storing state");
-        OffsetManager offsetManager = new OffsetManager(Path.of(ConfigHolderBean.configHolder.getOffsetFileName()),
+
+        String stateUrl = config.getOptionalValue("arrakis.backend.url", String.class).orElse("http://localhost:9094")
+                + "/api/v1/pipes/" + config.getValue("arrakis.pipeline.id", String.class) + "/state";
+
+        MySQLOffset mySQLOffset = new MySQLOffset(Path.of(ConfigHolderBean.configHolder.getOffsetFileName()),
                 config.getOptionalValue("debezium.source.database.dbname", String.class));
-        Map<String, String> stateMap = offsetManager.read();
-        JsonNode state = offsetManager.serialize(stateMap);
-        StateManager stateManager = new StateManager();
+        Map<String, String> stateMap = mySQLOffset.read();
+        JsonNode state = mySQLOffset.serialize(stateMap);
         try {
-            stateManager.saveState(state);
+            System.out.println("Saving state: " + state);
+            ArrakisHttpUtils.updateState(stateUrl, state);
         }
         catch (Exception e) {
             LOGGER.error("Failed to save state: " + e.getMessage(), e);
@@ -119,7 +123,7 @@ public class KafkaChangeConsumer extends BaseChangeConsumer implements DebeziumE
             throws InterruptedException {
         final CountDownLatch latch = new CountDownLatch(records.size());
 
-        MySqlBatchExitLogic mySqlBatchExitLogic = new MySqlBatchExitLogic();
+        MySQLBatchExitLogic mySqlBatchExitLogic = new MySQLBatchExitLogic();
 
         for (ChangeEvent<Object, Object> record : records) {
             try {
