@@ -28,6 +28,7 @@ import io.arrakis.connectors.mysql.schemahistory.MySQLSchemaHistoryStorage;
 import io.arrakis.connectors.mysql.state.MySQLOffset;
 import io.arrakis.connectors.mysql.state.MySQLOffsetUtils;
 import io.arrakis.connectors.mysql.state.MySQLStateAttributes;
+import io.arrakis.connectors.mysql.utils.MySQLUtils;
 import io.debezium.engine.ChangeEvent;
 import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.format.Json;
@@ -149,6 +150,11 @@ public class SchemaRecovery {
         MySQLConfig mysqlConfig = objectMapper.readValue(pipe.sourceConfig.toString(),
                 MySQLConfig.class);
 
+        String tableIncludeList = MySQLUtils.getTableIncludeList(pipe.getMappedEvents(),
+                mysqlConfig.getDatabaseName());
+
+        configHolder.setTableList(tableIncludeList);
+
         MySQLOffsetUtils mySqlOffsetUtils = new MySQLOffsetUtils(mysqlConfig);
 
         LOGGER.info("Extracting latest Offset from MySQL for target position and filename: ");
@@ -157,7 +163,7 @@ public class SchemaRecovery {
         configHolder.setTargetFileName(targetMySqlOffsetState.get(0).getBinlogFilename());
         LOGGER.info("Target Offset extracted from MySQL : {}", targetMySqlOffsetState);
 
-        if (pipe.state == null || pipe.state.isEmpty()) {
+        if (pipe.state == null || pipe.state.isEmpty() || pipe.state.get("mysql_cdc_offset").isEmpty()) {
 
             // Step 1: Extract latest Offset from MySQL and Save it in a file
             // ToDo: We can probably leave it up to the debezium engine to handle this

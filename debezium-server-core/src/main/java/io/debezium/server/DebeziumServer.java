@@ -167,8 +167,8 @@ public class DebeziumServer {
         props.setProperty("database.server.id", String.valueOf(ArrakisUtils.generateServerID()));
         props.setProperty("database.server.name", config.getValue("debezium.source.database.dbname", String.class)
                 + "-" + configHolder.getShortPipeId());
-        props.setProperty("topic.prefix", config.getValue("debezium.source.database.dbname", String.class)
-                + "-" + configHolder.getShortPipeId());
+        props.setProperty("topic.prefix", configHolder.getShortPipeId());
+        props.setProperty("table.include.list", configHolder.getTableList());
         props.setProperty("offset.storage.file.filename", configHolder.getOffsetFileName());
 
         engine = DebeziumEngine.create(keyFormat, valueFormat, headerFormat)

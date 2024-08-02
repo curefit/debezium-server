@@ -34,4 +34,7 @@ public class ConfigHolder {
     @JsonProperty("server_name")
     public String serverName;
 
+    @JsonProperty("table_list")
+    public String tableList;
+
 }
