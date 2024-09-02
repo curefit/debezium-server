@@ -9,8 +9,11 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 
+import jakarta.inject.Inject;
+
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.eclipse.microprofile.health.Liveness;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +39,7 @@ import io.debezium.engine.spi.OffsetCommitPolicy;
 import io.quarkus.runtime.Quarkus;
 
 public class SchemaRecovery {
-    private final Logger LOGGER = LoggerFactory.getLogger(SchemaRecovery.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SchemaRecovery.class);
 
     private ExecutorService executor = Executors.newSingleThreadExecutor();
 
@@ -45,6 +48,10 @@ public class SchemaRecovery {
     private final BlockingQueue<ChangeEvent<String, String>> queue = new LinkedBlockingQueue<>(10);
 
     private static final ConfigHolder configHolder = new ConfigHolder();
+
+    @Inject
+    @Liveness
+    ConnectorLifecycle health;
 
     private ExecutorService runDebeziumEngine(Path schemaHistoryPath,
                                               Path offsetFilePath,
@@ -58,6 +65,8 @@ public class SchemaRecovery {
 
         engine = DebeziumEngine.create(Json.class)
                 .using(props)
+                .using((DebeziumEngine.ConnectorCallback) health)
+                .using((DebeziumEngine.CompletionCallback) health)
                 .using(new OffsetCommitPolicy.AlwaysCommitOffsetPolicy())
                 .notifying(e -> {
                     if (e.value() != null) {
@@ -135,6 +144,9 @@ public class SchemaRecovery {
         String ARRAKIS_URL = "arrakis.backend.url";
         String ARRAKIS_PIPE_ID = "arrakis.pipeline.id";
         String PIPE_INFO_API = "/api/v1/pipes/id/";
+
+        LOGGER.info("Retrieving pipe info from Arrakis backend");
+        LOGGER.info("Arrakis URL: " + config.getValue(ARRAKIS_URL, String.class));
 
         PipelineRunContext pipe = ArrakisHttpUtils.getPipeInfoApi(config.getValue(ARRAKIS_URL, String.class)
                 + PIPE_INFO_API

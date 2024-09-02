@@ -45,6 +45,7 @@
         <module>debezium-server-bom</module>
         <module>debezium-server-core</module>
         <module>debezium-server-dist</module>
+        <module>debezium-server-kafka</module>
     </modules>
 
     <dependencyManagement>
