@@ -7,6 +7,7 @@ package io.debezium.server.kafka;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -14,6 +15,7 @@ import java.util.concurrent.CountDownLatch;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.event.Event;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
@@ -40,7 +42,9 @@ import io.debezium.engine.Header;
 import io.debezium.server.BaseChangeConsumer;
 import io.debezium.server.ConfigHolderBean;
 import io.debezium.server.CustomConsumerBuilder;
-import io.quarkus.runtime.Quarkus;
+import io.debezium.server.DebeziumServer;
+import io.debezium.server.events.ConnectorCompletedEvent;
+import io.debezium.server.events.ConnectorStoppedEvent;
 
 /**
  * An implementation of the {@link DebeziumEngine.ChangeConsumer} interface that publishes change event messages to Kafka.
@@ -53,10 +57,9 @@ public class KafkaChangeConsumer extends BaseChangeConsumer implements DebeziumE
 
     private static final String PROP_PREFIX = "debezium.sink.kafka.";
     private static final String PROP_PREFIX_PRODUCER = PROP_PREFIX + "producer.";
-
     private KafkaProducer<Object, Object> producer;
 
-    private boolean hasTargetReached = false;
+    public boolean hasTargetReached = false;
 
     private final Config config = ConfigProvider.getConfig();
 
@@ -65,7 +68,16 @@ public class KafkaChangeConsumer extends BaseChangeConsumer implements DebeziumE
     Instance<KafkaProducer<Object, Object>> customKafkaProducer;
 
     @Inject
-    ConfigHolderBean configHolderBean;
+    Event<ConnectorCompletedEvent> connectorCompletedEventEvent;
+
+    @Inject
+    Event<ConnectorStoppedEvent> connectorStoppedEvent;
+
+    // @Inject
+    // ConfigHolderBean configHolderBean;
+    //
+    @Inject
+    DebeziumServer debeziumServer;
 
     @PostConstruct
     void start() {
@@ -90,6 +102,7 @@ public class KafkaChangeConsumer extends BaseChangeConsumer implements DebeziumE
                 if (!hasTargetReached) {
                     LOGGER.info("Always store the state when signalled for close!");
                     storeState(config);
+                    connectorStoppedEvent.fire(new ConnectorStoppedEvent());
                 }
             }
             catch (Throwable t) {
@@ -121,13 +134,18 @@ public class KafkaChangeConsumer extends BaseChangeConsumer implements DebeziumE
     public void handleBatch(final List<ChangeEvent<Object, Object>> records,
                             final RecordCommitter<ChangeEvent<Object, Object>> committer)
             throws InterruptedException {
+
+        debeziumServer.recordsReceivedflag = true;
+        debeziumServer.lastTimeRecordsReceived = Instant.now();
+        LOGGER.info("Received records for processing {} at {}", true, Instant.now());
+
         final CountDownLatch latch = new CountDownLatch(records.size());
 
         MySQLBatchExitLogic mySqlBatchExitLogic = new MySQLBatchExitLogic();
 
         for (ChangeEvent<Object, Object> record : records) {
             try {
-                LOGGER.trace("Received event '{}'", record);
+                LOGGER.info("Received event '{}'", record);
 
                 Headers headers = convertKafkaHeaders(record);
 
@@ -159,11 +177,11 @@ public class KafkaChangeConsumer extends BaseChangeConsumer implements DebeziumE
         committer.markBatchFinished();
 
         if (hasTargetReached) {
-            LOGGER.info("Pipeline is in BATCH mode. Signalling engine shutdown as the connector has reched target position.");
+            LOGGER.info("Pipeline is in BATCH mode. Signalling engine shutdown as the connector has reached target position.");
             storeState(config);
-            stop();
-            Quarkus.asyncExit(0);
+            connectorCompletedEventEvent.fire(new ConnectorCompletedEvent(true, "Connector has reached target position", null));
         }
+        // debeziumServer.recordsReceivedflag = false;
     }
 
     private Headers convertKafkaHeaders(ChangeEvent<Object, Object> record) {
