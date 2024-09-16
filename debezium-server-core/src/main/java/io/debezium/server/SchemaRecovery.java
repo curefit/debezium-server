@@ -9,6 +9,8 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.config.Config;
@@ -31,13 +33,17 @@ import io.arrakis.connectors.mysql.schemahistory.MySQLSchemaHistoryStorage;
 import io.arrakis.connectors.mysql.state.MySQLOffset;
 import io.arrakis.connectors.mysql.state.MySQLOffsetUtils;
 import io.arrakis.connectors.mysql.state.MySQLStateAttributes;
+import io.arrakis.connectors.mysql.utils.MySQLBatchExitLogic;
 import io.arrakis.connectors.mysql.utils.MySQLUtils;
 import io.debezium.engine.ChangeEvent;
 import io.debezium.engine.DebeziumEngine;
 import io.debezium.engine.format.Json;
 import io.debezium.engine.spi.OffsetCommitPolicy;
 import io.quarkus.runtime.Quarkus;
+import io.quarkus.runtime.StartupEvent;
+import io.trino.jdbc.$internal.jakarta.annotation.PostConstruct;
 
+@ApplicationScoped
 public class SchemaRecovery {
     private static final Logger LOGGER = LoggerFactory.getLogger(SchemaRecovery.class);
 
@@ -45,13 +51,19 @@ public class SchemaRecovery {
 
     private DebeziumEngine<ChangeEvent<String, String>> engine = null;
 
-    private final BlockingQueue<ChangeEvent<String, String>> queue = new LinkedBlockingQueue<>(10);
+    private final BlockingQueue<ChangeEvent<String, String>> queue = new LinkedBlockingQueue<>();
 
     private static final ConfigHolder configHolder = new ConfigHolder();
 
     @Inject
     @Liveness
     ConnectorLifecycle health;
+
+    @PostConstruct
+    void onStart(@Observes StartupEvent event) {
+        LOGGER.info("Starting Server..." + event);
+        // Perform initialization logic
+    }
 
     private ExecutorService runDebeziumEngine(Path schemaHistoryPath,
                                               Path offsetFilePath,
@@ -104,7 +116,7 @@ public class SchemaRecovery {
     private boolean closeOnSuccessOrFailure(Instant engineStartTime) throws IOException, InterruptedException {
 
         boolean hasClosed = false;
-        Duration initialWaitingDuration = Duration.ofMinutes(1L);
+        Duration initialWaitingDuration = Duration.ofSeconds(30);
 
         while (!hasClosed) {
             final ChangeEvent<String, String> event = queue.poll(10, TimeUnit.SECONDS);
@@ -113,7 +125,7 @@ public class SchemaRecovery {
                 LOGGER.info("No record is returned, waiting for 1 minute before closing the engine");
 
                 if (Duration.between(engineStartTime, Instant.now()).compareTo(initialWaitingDuration) > 0) {
-                    LOGGER.error("No record is returned even after {} minutes of waiting, closing the engine", initialWaitingDuration.toMinutes());
+                    LOGGER.error("No record is returned even after {} minutes of waiting, closing the engine", initialWaitingDuration.toSeconds());
                     if (engine != null) {
                         engine.close();
                     }
@@ -134,6 +146,19 @@ public class SchemaRecovery {
         }
 
         return hasClosed;
+    }
+
+    private Path emptyOffsetFile() {
+        final Path cdcWorkingDir;
+        try {
+            cdcWorkingDir = Files.createTempDirectory(Path.of("/tmp"), "cdc-state-offset");
+        }
+        catch (final IOException e) {
+            throw new RuntimeException(e);
+        }
+        final Path cdcOffsetFilePath = cdcWorkingDir.resolve("offset.dat");
+        LOGGER.info("Offset file: {}", cdcOffsetFilePath);
+        return cdcOffsetFilePath;
     }
 
     public ConfigHolder recoverSchema() throws IOException, InterruptedException, SQLException, ArrakisException {
@@ -182,21 +207,13 @@ public class SchemaRecovery {
 
             LOGGER.error("Pipe state is null");
 
-            final Path cdcWorkingDir;
-            try {
-                cdcWorkingDir = Files.createTempDirectory(Path.of("/tmp"), "cdc-state-offset");
-            }
-            catch (final IOException e) {
-                throw new RuntimeException(e);
-            }
-            final Path cdcOffsetFilePath = cdcWorkingDir.resolve("offset.dat");
-            LOGGER.info("Offset file: {}", cdcOffsetFilePath);
-
             // Step 2: Create Schema History Storage empty file
 
             MySQLSchemaHistoryStorage schemaHistoryStorage = MySQLSchemaHistoryStorage.initializeDBHistory(
                     new MySQLSchemaHistory<>(Optional.empty(), false),
                     true);
+
+            Path cdcOffsetFilePath = emptyOffsetFile();
 
             // Step 3: Return empty offset and schema files with target pos and filename
 
@@ -219,36 +236,60 @@ public class SchemaRecovery {
             JsonNode offsetAsJsonNode = null;
             offsetAsJsonNode = objectMapper.readTree(offsetMap.values().iterator().next());
 
+            // Step 2: If state is valid persist into a file and return the file path
+
+            MySQLOffset mySQLOffset = MySQLOffset.initializeState(pipe.state.get("mysql_cdc_offset"),
+                    Optional.of(mysqlConfig.getDatabaseName()));
+
+            MySQLSchemaHistoryStorage schemaHistoryStorage = MySQLSchemaHistoryStorage.initializeDBHistory(
+                    new MySQLSchemaHistory<>(Optional.empty(), false),
+                    true);
+
             assert offsetAsJsonNode != null;
 
             if (mySqlOffsetUtils.savedOffsetStillValid(offsetAsJsonNode.get("file").asText())) {
 
-                // Step 2: If state is valid persist into a file and return the file path
+                MySQLBatchExitLogic mySqlBatchExitLogic = new MySQLBatchExitLogic();
+                LOGGER.info("regex string: " + pipe.state.toString());
+                // Log extracted information for debugging
+                LOGGER.info("File: " + offsetAsJsonNode.get("file").asText() + ", Pos: " + offsetAsJsonNode.get("pos").asLong());
+                LOGGER.info("Target File: " + configHolder.getTargetFileName() + ", Target Position: " + configHolder.getTargetPosition());
 
-                MySQLOffset mySQLOffset = MySQLOffset.initializeState(pipe.state.get("mysql_cdc_offset"), Optional.of(mysqlConfig.getDatabaseName()));
+                boolean hasTargetReached = offsetAsJsonNode.get("file").asText().compareTo(configHolder.getTargetFileName()) > 0
+                        || (offsetAsJsonNode.get("file").asText().compareTo(configHolder.getTargetFileName()) == 0
+                                && offsetAsJsonNode.get("pos").asLong() >= configHolder.getTargetPosition());
 
-                LOGGER.info("Created Offset file {}", mySQLOffset.getOffsetFilePath());
-                LOGGER.info("Persisted latest offset to: {}", mySQLOffset.getOffsetFilePath());
-
-                // Step 3: Create Schema History Storage empty file
-
-                MySQLSchemaHistoryStorage schemaHistoryStorage = MySQLSchemaHistoryStorage.initializeDBHistory(
-                        new MySQLSchemaHistory<>(Optional.empty(), false),
-                        true);
-
-                // Step 4: Start Debezium Engine with the Offset and Schema History Storage
-
-                executor = runDebeziumEngine(schemaHistoryStorage.getPath(),
-                        mySQLOffset.getOffsetFilePath(),
-                        pipe);
-
-                if (closeOnSuccessOrFailure(Instant.now())) {
-                    configHolder.setSchemHistoryFileName(schemaHistoryStorage.getPath().toString());
-                    configHolder.setOffsetFileName(mySQLOffset.getOffsetFilePath().toString());
-                    configHolder.setServerName(mysqlConfig.getDatabaseName());
-                    return configHolder;
+                LOGGER.info("Target position reached: {}", hasTargetReached);
+                if (hasTargetReached) {
+                    LOGGER.info("Pipeline is in BATCH mode. Signalling engine shutdown as the connector has " +
+                            "reached target position.");
+                    Quarkus.asyncExit(0);
                 }
-                return null;
+                else {
+
+                    LOGGER.info("Created Offset file {}", mySQLOffset.getOffsetFilePath());
+                    LOGGER.info("Persisted latest offset to: {}", mySQLOffset.getOffsetFilePath());
+
+                    // Step 3: Start Debezium Engine with the Offset and Schema History Storage
+
+                    executor = runDebeziumEngine(schemaHistoryStorage.getPath(),
+                            mySQLOffset.getOffsetFilePath(),
+                            pipe);
+
+                    if (closeOnSuccessOrFailure(Instant.now())) {
+                        configHolder.setSchemHistoryFileName(schemaHistoryStorage.getPath().toString());
+                        configHolder.setOffsetFileName(mySQLOffset.getOffsetFilePath().toString());
+                        configHolder.setServerName(mysqlConfig.getDatabaseName());
+                        return configHolder;
+                    }
+                    return null;
+                }
+            }
+            else {
+                configHolder.setSchemHistoryFileName(schemaHistoryStorage.getPath().toString());
+                configHolder.setOffsetFileName(emptyOffsetFile().toString());
+                configHolder.setServerName(mysqlConfig.getDatabaseName());
+                return configHolder;
             }
         }
         return null;

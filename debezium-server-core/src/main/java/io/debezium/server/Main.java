@@ -21,14 +21,6 @@ public class Main {
     private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
 
     public static void main(String... args) throws InterruptedException, IOException, SQLException, ArrakisException {
-
-        SchemaRecovery schemaRecovery = new SchemaRecovery();
-        ConfigHolder configHolder = schemaRecovery.recoverSchema();
-        LOGGER.info("Recovered config : {}", configHolder);
-
-        // Set the ConfigHolder in ConfigHolderBean
-        ConfigHolderBean.configHolder = configHolder;
-
         Quarkus.run(args);
     }
 

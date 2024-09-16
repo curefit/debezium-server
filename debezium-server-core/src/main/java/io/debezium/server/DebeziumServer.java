@@ -6,6 +6,7 @@
 package io.debezium.server;
 
 import java.nio.file.Paths;
+import java.time.Instant;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Properties;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.spi.CreationalContext;
+import jakarta.enterprise.event.Event;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
@@ -42,6 +44,8 @@ import io.debezium.engine.format.JsonByteArray;
 import io.debezium.engine.format.Protobuf;
 import io.debezium.relational.history.SchemaHistory;
 import io.debezium.server.events.ConnectorCompletedEvent;
+import io.debezium.server.events.NoRecordsReadEvent;
+import io.debezium.server.events.TaskStartedEvent;
 import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.Startup;
@@ -101,15 +105,37 @@ public class DebeziumServer {
     @Liveness
     ConnectorLifecycle health;
 
+    @Inject
+    Event<TaskStartedEvent> taskStartedEvent;
+
     private Bean<DebeziumEngine.ChangeConsumer<ChangeEvent<Object, Object>>> consumerBean;
     private CreationalContext<ChangeConsumer<ChangeEvent<Object, Object>>> consumerBeanCreationalContext;
     private DebeziumEngine.ChangeConsumer<ChangeEvent<Object, Object>> consumer;
     DebeziumEngine<?> engine;
     private final Properties props = new Properties();
 
+    public boolean recordsReceivedflag = false;
+    // public Instant serverStartTime;
+    public Instant lastTimeRecordsReceived = null;
+
     @SuppressWarnings("unchecked")
     @PostConstruct
     public void start() {
+
+        LOGGER.info("Starting SchemaRecovery");
+        try {
+            taskStartedEvent.fire(new TaskStartedEvent());
+            SchemaRecovery schemaRecovery = new SchemaRecovery();
+            ConfigHolder configHolder = schemaRecovery.recoverSchema();
+            LOGGER.info("Recovered config : {}", configHolder);
+            // Set the ConfigHolder in ConfigHolderBean
+            ConfigHolderBean.configHolder = configHolder;
+        }
+        catch (Exception e) {
+            LOGGER.error("Error while recovering schema", e);
+            Quarkus.asyncExit(1);
+        }
+
         final Config config = loadConfigOrDie();
         final String name = config.getValue(PROP_SINK_TYPE, String.class);
         // final CommonUtils commonUtils = new CommonUtils();
@@ -258,6 +284,28 @@ public class DebeziumServer {
     void connectorCompleted(@Observes ConnectorCompletedEvent event) {
         if (!event.isSuccess()) {
             returnCode = 1;
+        }
+        try {
+            final Config config = ConfigProvider.getConfig();
+            engine.close();
+            executor.shutdownNow();
+            Quarkus.asyncExit(0);
+        }
+        catch (Exception e) {
+            LOGGER.error("Exception while shutting down Debezium", e);
+        }
+    }
+
+    void noRecordsRead(@Observes NoRecordsReadEvent event) {
+        LOGGER.info("Observed NoRecordsReadEvent: {}", event.getMessage());
+        try {
+            LOGGER.info("Received request to stop the engine");
+            engine.close();
+            executor.shutdown();
+            Quarkus.asyncExit(0);
+        }
+        catch (Exception e) {
+            LOGGER.error("Exception while shutting down Debezium", e);
         }
     }
 
