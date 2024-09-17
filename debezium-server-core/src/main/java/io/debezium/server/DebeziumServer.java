@@ -20,7 +20,6 @@ import java.util.stream.Collectors;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.spi.CreationalContext;
-import jakarta.enterprise.event.Event;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
@@ -32,6 +31,10 @@ import org.eclipse.microprofile.health.Liveness;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.arrakis.commons.dto.PipelineRunContext;
+import io.arrakis.commons.enums.PipelineStep;
+import io.arrakis.commons.requests.CancelPipelineStepRequest;
+import io.arrakis.commons.utils.ArrakisHttpUtils;
 import io.arrakis.commons.utils.ArrakisUtils;
 import io.debezium.DebeziumException;
 import io.debezium.engine.ChangeEvent;
@@ -45,7 +48,6 @@ import io.debezium.engine.format.Protobuf;
 import io.debezium.relational.history.SchemaHistory;
 import io.debezium.server.events.ConnectorCompletedEvent;
 import io.debezium.server.events.NoRecordsReadEvent;
-import io.debezium.server.events.TaskStartedEvent;
 import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.Startup;
@@ -105,9 +107,6 @@ public class DebeziumServer {
     @Liveness
     ConnectorLifecycle health;
 
-    @Inject
-    Event<TaskStartedEvent> taskStartedEvent;
-
     private Bean<DebeziumEngine.ChangeConsumer<ChangeEvent<Object, Object>>> consumerBean;
     private CreationalContext<ChangeConsumer<ChangeEvent<Object, Object>>> consumerBeanCreationalContext;
     private DebeziumEngine.ChangeConsumer<ChangeEvent<Object, Object>> consumer;
@@ -124,7 +123,6 @@ public class DebeziumServer {
 
         LOGGER.info("Starting SchemaRecovery");
         try {
-            taskStartedEvent.fire(new TaskStartedEvent());
             SchemaRecovery schemaRecovery = new SchemaRecovery();
             ConfigHolder configHolder = schemaRecovery.recoverSchema();
             LOGGER.info("Recovered config : {}", configHolder);
@@ -213,6 +211,28 @@ public class DebeziumServer {
             }
         });
         LOGGER.info("Engine executor started");
+
+    }
+
+    private boolean stopConnectorThroughAPI() {
+        String ARRAKIS_URL = "arrakis.backend.url";
+        String PIPE_INFO_API = "/api/v1/pipes/id/";
+        String ARRAKIS_PIPE_ID = "arrakis.pipeline.id";
+        try {
+            final Config config = ConfigProvider.getConfig();
+            PipelineRunContext pipe = ArrakisHttpUtils.getPipeInfoApi(config.getValue(ARRAKIS_URL, String.class)
+                    + PIPE_INFO_API
+                    + config.getValue(ARRAKIS_PIPE_ID, String.class));
+            String stopConnectorUrl = "/api/v1/pipes/" + pipe.getPipelineName() + "/steps/stop";
+            CancelPipelineStepRequest cancelPipelineStepRequest = new CancelPipelineStepRequest();
+            cancelPipelineStepRequest.setPipelineStep(PipelineStep.SOURCE_TO_STAGING);
+            return ArrakisHttpUtils.stopPipelineStep(config.getValue(ARRAKIS_URL, String.class)
+                    + stopConnectorUrl, cancelPipelineStepRequest);
+        }
+        catch (Exception e) {
+            LOGGER.error("Error while stopping connector through API", e);
+            return false;
+        }
     }
 
     private void configToProperties(Config config, Properties props, String oldPrefix, String newPrefix, boolean overwrite) {
@@ -289,7 +309,8 @@ public class DebeziumServer {
             final Config config = ConfigProvider.getConfig();
             engine.close();
             executor.shutdownNow();
-            Quarkus.asyncExit(0);
+            executor.awaitTermination(config.getOptionalValue(PROP_TERMINATION_WAIT, Integer.class).orElse(10), TimeUnit.SECONDS);
+            stopConnectorThroughAPI();
         }
         catch (Exception e) {
             LOGGER.error("Exception while shutting down Debezium", e);
@@ -302,7 +323,8 @@ public class DebeziumServer {
             LOGGER.info("Received request to stop the engine");
             engine.close();
             executor.shutdown();
-            Quarkus.asyncExit(0);
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+            stopConnectorThroughAPI();
         }
         catch (Exception e) {
             LOGGER.error("Exception while shutting down Debezium", e);

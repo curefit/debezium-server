@@ -23,7 +23,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.arrakis.commons.dto.PipelineRunContext;
+import io.arrakis.commons.enums.PipelineStep;
 import io.arrakis.commons.exceptions.ArrakisException;
+import io.arrakis.commons.requests.CancelPipelineStepRequest;
 import io.arrakis.commons.utils.ArrakisHttpUtils;
 import io.arrakis.commons.utils.ArrakisUtils;
 import io.arrakis.connectors.mysql.MySQLConfig;
@@ -148,6 +150,27 @@ public class SchemaRecovery {
         return hasClosed;
     }
 
+    private boolean stopConnectorThroughAPI() {
+        String ARRAKIS_URL = "arrakis.backend.url";
+        String PIPE_INFO_API = "/api/v1/pipes/id/";
+        String ARRAKIS_PIPE_ID = "arrakis.pipeline.id";
+        try {
+            final Config config = ConfigProvider.getConfig();
+            PipelineRunContext pipe = ArrakisHttpUtils.getPipeInfoApi(config.getValue(ARRAKIS_URL, String.class)
+                    + PIPE_INFO_API
+                    + config.getValue(ARRAKIS_PIPE_ID, String.class));
+            String stopConnectorUrl = "/api/v1/pipes/" + pipe.getPipelineName() + "/steps/stop";
+            CancelPipelineStepRequest cancelPipelineStepRequest = new CancelPipelineStepRequest();
+            cancelPipelineStepRequest.setPipelineStep(PipelineStep.SOURCE_TO_STAGING);
+            return ArrakisHttpUtils.stopPipelineStep(config.getValue(ARRAKIS_URL, String.class)
+                    + stopConnectorUrl, cancelPipelineStepRequest);
+        }
+        catch (Exception e) {
+            LOGGER.error("Error while stopping connector through API", e);
+            return false;
+        }
+    }
+
     private Path emptyOffsetFile() {
         final Path cdcWorkingDir;
         try {
@@ -263,7 +286,7 @@ public class SchemaRecovery {
                 if (hasTargetReached) {
                     LOGGER.info("Pipeline is in BATCH mode. Signalling engine shutdown as the connector has " +
                             "reached target position.");
-                    Quarkus.asyncExit(0);
+                    stopConnectorThroughAPI();
                 }
                 else {
 

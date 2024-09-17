@@ -52,8 +52,10 @@ public class DebeziumController {
     private String checkAndFireEvent() {
         LOGGER.info("Records received last time: " + debeziumServer.lastTimeRecordsReceived);
         LOGGER.info("Server Start time: " + serverStartTime);
+        Instant fiveMinutesAgo = Instant.now().minusSeconds(300);
         if ((debeziumServer.lastTimeRecordsReceived == null
-                && serverStartTime.isBefore(Instant.now().minusSeconds(300)))
+                && (serverStartTime.isBefore(fiveMinutesAgo) ||
+                        serverStartTime.equals(fiveMinutesAgo)))
                 || (debeziumServer.lastTimeRecordsReceived != null &&
                         debeziumServer.lastTimeRecordsReceived.isBefore(Instant.now().minusSeconds(300)))) {
             LOGGER.info("Records are not read for more than 5m mins. Firing event...");
