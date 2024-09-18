@@ -31,6 +31,7 @@ public class DebeziumController {
 
     @PostConstruct
     void start() {
+        LOGGER.info("Debezium Controller started.");
         serverStartTime = Instant.now();
     }
 
@@ -43,24 +44,29 @@ public class DebeziumController {
     }
 
     // Scheduled to run every 5 minutes
-    @Scheduled(every = "5m")
+    @Scheduled(every = "3m")
     void scheduledCheck() {
         checkAndFireEvent();
     }
 
     // Method to check the variable and fire an event if needed
     private String checkAndFireEvent() {
+        if (serverStartTime == null) {
+            LOGGER.info("Debezium server is not started yet.");
+            return "Debezium server is not started yet.";
+        }
+
         LOGGER.info("Records received last time: " + debeziumServer.lastTimeRecordsReceived);
         LOGGER.info("Server Start time: " + serverStartTime);
-        Instant fiveMinutesAgo = Instant.now().minusSeconds(300);
+        Instant twoMinutesAgo = Instant.now().minusSeconds(180);
         if ((debeziumServer.lastTimeRecordsReceived == null
-                && (serverStartTime.isBefore(fiveMinutesAgo) ||
-                        serverStartTime.equals(fiveMinutesAgo)))
+                && (serverStartTime.isBefore(twoMinutesAgo) ||
+                        serverStartTime.equals(twoMinutesAgo)))
                 || (debeziumServer.lastTimeRecordsReceived != null &&
-                        debeziumServer.lastTimeRecordsReceived.isBefore(Instant.now().minusSeconds(300)))) {
-            LOGGER.info("Records are not read for more than 5m mins. Firing event...");
-            debeziumEvent.fire(new NoRecordsReadEvent("Event fired: No Records sent to Kafka for last 5 minutes."));
-            return "Periodic check: No Records sent to Kafka for last 5 minutes.";
+                        debeziumServer.lastTimeRecordsReceived.isBefore(Instant.now().minusSeconds(180)))) {
+            LOGGER.info("Records are not read for more than 2.5m mins. Firing event...");
+            debeziumEvent.fire(new NoRecordsReadEvent("Event fired: No Records sent to Kafka for last 2.5 minutes."));
+            return "Periodic check: No Records sent to Kafka for last 2.5 minutes.";
         }
         else {
             LOGGER.info("Debezium server is running fine.");

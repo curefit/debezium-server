@@ -154,6 +154,7 @@ public class SchemaRecovery {
         String ARRAKIS_URL = "arrakis.backend.url";
         String PIPE_INFO_API = "/api/v1/pipes/id/";
         String ARRAKIS_PIPE_ID = "arrakis.pipeline.id";
+        int returnCode = 0;
         try {
             final Config config = ConfigProvider.getConfig();
             PipelineRunContext pipe = ArrakisHttpUtils.getPipeInfoApi(config.getValue(ARRAKIS_URL, String.class)
@@ -162,6 +163,7 @@ public class SchemaRecovery {
             String stopConnectorUrl = "/api/v1/pipes/" + pipe.getPipelineName() + "/steps/stop";
             CancelPipelineStepRequest cancelPipelineStepRequest = new CancelPipelineStepRequest();
             cancelPipelineStepRequest.setPipelineStep(PipelineStep.SOURCE_TO_STAGING);
+            cancelPipelineStepRequest.setReturnCode(0);
             return ArrakisHttpUtils.stopPipelineStep(config.getValue(ARRAKIS_URL, String.class)
                     + stopConnectorUrl, cancelPipelineStepRequest);
         }

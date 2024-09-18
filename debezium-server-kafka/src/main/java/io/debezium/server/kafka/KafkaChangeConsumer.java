@@ -145,7 +145,6 @@ public class KafkaChangeConsumer extends BaseChangeConsumer implements DebeziumE
 
         for (ChangeEvent<Object, Object> record : records) {
             try {
-                LOGGER.info("Received event '{}'", record);
 
                 Headers headers = convertKafkaHeaders(record);
 

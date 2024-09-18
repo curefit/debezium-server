@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.spi.CreationalContext;
+import jakarta.enterprise.event.Event;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
@@ -32,8 +33,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.arrakis.commons.dto.PipelineRunContext;
+import io.arrakis.commons.enums.PipeRunStatus;
+import io.arrakis.commons.enums.PipeStepStatus;
 import io.arrakis.commons.enums.PipelineStep;
 import io.arrakis.commons.requests.CancelPipelineStepRequest;
+import io.arrakis.commons.requests.JobHistoryRequest;
 import io.arrakis.commons.utils.ArrakisHttpUtils;
 import io.arrakis.commons.utils.ArrakisUtils;
 import io.debezium.DebeziumException;
@@ -48,6 +52,7 @@ import io.debezium.engine.format.Protobuf;
 import io.debezium.relational.history.SchemaHistory;
 import io.debezium.server.events.ConnectorCompletedEvent;
 import io.debezium.server.events.NoRecordsReadEvent;
+import io.debezium.server.events.TaskStartedEvent;
 import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.Startup;
@@ -107,6 +112,9 @@ public class DebeziumServer {
     @Liveness
     ConnectorLifecycle health;
 
+    @Inject
+    Event<TaskStartedEvent> taskStartedEvent;
+
     private Bean<DebeziumEngine.ChangeConsumer<ChangeEvent<Object, Object>>> consumerBean;
     private CreationalContext<ChangeConsumer<ChangeEvent<Object, Object>>> consumerBeanCreationalContext;
     private DebeziumEngine.ChangeConsumer<ChangeEvent<Object, Object>> consumer;
@@ -116,6 +124,11 @@ public class DebeziumServer {
     public boolean recordsReceivedflag = false;
     // public Instant serverStartTime;
     public Instant lastTimeRecordsReceived = null;
+
+    String ARRAKIS_URL = "arrakis.backend.url";
+    String PIPE_INFO_API = "/api/v1/pipes/id/";
+    String ARRAKIS_PIPE_ID = "arrakis.pipeline.id";
+    String ARRAKIS_RUN_ID = "arrakis.run.id";
 
     @SuppressWarnings("unchecked")
     @PostConstruct
@@ -195,6 +208,8 @@ public class DebeziumServer {
         props.setProperty("table.include.list", configHolder.getTableList());
         props.setProperty("offset.storage.file.filename", configHolder.getOffsetFileName());
 
+        taskStartedEvent.fire(new TaskStartedEvent());
+
         engine = DebeziumEngine.create(keyFormat, valueFormat, headerFormat)
                 .using(props)
                 .using((DebeziumEngine.ConnectorCallback) health)
@@ -212,12 +227,20 @@ public class DebeziumServer {
         });
         LOGGER.info("Engine executor started");
 
+        // serverStartTime = Instant.now();
+
+        JobHistoryRequest jobHistoryRequest = new JobHistoryRequest(config.getValue(ARRAKIS_RUN_ID, String.class),
+                PipeRunStatus.RUNNING,
+                PipeStepStatus.RUNNING, null);
+
+        ArrakisHttpUtils.updatePipeJobHistory(config.getValue(ARRAKIS_URL, String.class) + "/api/v1/pipes/"
+                + config.getValue(ARRAKIS_PIPE_ID, String.class)
+                + "/job_history/update", jobHistoryRequest);
+
     }
 
     private boolean stopConnectorThroughAPI() {
-        String ARRAKIS_URL = "arrakis.backend.url";
-        String PIPE_INFO_API = "/api/v1/pipes/id/";
-        String ARRAKIS_PIPE_ID = "arrakis.pipeline.id";
+
         try {
             final Config config = ConfigProvider.getConfig();
             PipelineRunContext pipe = ArrakisHttpUtils.getPipeInfoApi(config.getValue(ARRAKIS_URL, String.class)
@@ -226,6 +249,7 @@ public class DebeziumServer {
             String stopConnectorUrl = "/api/v1/pipes/" + pipe.getPipelineName() + "/steps/stop";
             CancelPipelineStepRequest cancelPipelineStepRequest = new CancelPipelineStepRequest();
             cancelPipelineStepRequest.setPipelineStep(PipelineStep.SOURCE_TO_STAGING);
+            cancelPipelineStepRequest.setReturnCode(returnCode);
             return ArrakisHttpUtils.stopPipelineStep(config.getValue(ARRAKIS_URL, String.class)
                     + stopConnectorUrl, cancelPipelineStepRequest);
         }
